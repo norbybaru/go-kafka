@@ -7,7 +7,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/IBM/sarama"
+	"github.com/norbybaru/go-kafka/pkg/kafka"
 )
 
 type Comment struct {
@@ -40,12 +40,14 @@ func handleComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//fmt.Println("Payload: ", comment)
-
 	// convert body into bytes and send it to kafka
     cmtInBytes, err := json.Marshal(comment)
-	//fmt.Println("comment byes:", cmtInBytes)
-	pushMessageToQueue("comment", cmtInBytes)
+
+	if writer == nil {
+		log.Fatal("Kafka Writer not instantiated")
+	}
+
+	writer.PushMessageToQueue("comment", cmtInBytes)
 
 	w.WriteHeader(http.StatusCreated)
 	msg := fmt.Sprintf("Comment successfully stored")
@@ -54,13 +56,12 @@ func handleComment(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var producer sarama.SyncProducer
+var writer *kafka.Writer
 
 func main() {
 	brokerUrl := []string{"localhost:9093"}
-	producer = connect(brokerUrl)
-
-	defer producer.Close()
+	writer = kafka.NewKafkaWriter(brokerUrl)
+	defer writer.Producer.Close()
 
 	http.HandleFunc("/api/v1/comments", handleComment)
 
@@ -70,39 +71,3 @@ func main() {
 	}
 
 }
-
-// type Kafka struct {
-// 	Connection sarama.SyncProducer
-// }
-
-func connect(brokerUrl []string) sarama.SyncProducer {
-	config := sarama.NewConfig()
-	config.Producer.Return.Successes = true
-	config.Producer.RequiredAcks = sarama.WaitForAll
-	config.Producer.Retry.Max = 5
-
-	conn, err := sarama.NewSyncProducer(brokerUrl, config)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return conn
-}
-
-func pushMessageToQueue(topic string, message []byte) error {
-	msg := &sarama.ProducerMessage{
-		Topic: topic,
-		Value: sarama.StringEncoder(message),
-	}
-	partition, offset, err := producer.SendMessage(msg)
-
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("Message is stored in topic(%s)/partition(%d)/offset(%d)\n", topic, partition, offset)
-
-	return nil
-}
-
